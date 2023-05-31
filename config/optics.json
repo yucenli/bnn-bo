@@ -1,0 +1,101 @@
+{
+  "n_trials": 5,
+  "n_BO_iters": 10,
+  "seed": 1,
+  "test_function": "optics",
+  "n_init_points": 10,
+  "batch_size": 10,
+  "models": {
+    "gp": {
+      "model": "gp"
+    },
+    "dkl": {
+      "model": "dkl",
+      "regnet_dims": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "regnet_activation": "tanh",
+      "noise_var": 10.0,
+      "prior_var": 10.0,
+      "pretrain_steps": 1000,
+      "train_steps": 5000,
+      "learning_rate": 0.0001
+    },
+    "ibnn": {
+      "model": "ibnn",
+      "depth": 3,
+      "var_b": 1.6,
+      "var_w": 10.0,
+      "kernel": "relu"
+    },
+    "hmc": {
+      "model": "hmc",
+      "regnet_dims": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "regnet_activation": "tanh",
+      "noise_var": 10.0,
+      "prior_var": 10.0,
+      "n_chains": 1,
+      "n_samples_per_chain": 100,
+      "n_burn_in": 200,
+      "step_size": 0.002,
+      "path_length": 0.01,
+      "pretrain_steps": 1000,
+      "adapt_step_size": true,
+      "adapt_noise": false,
+      "standardize_y": false
+    },
+    "sghmc": {
+      "model": "sghmc",
+      "regnet_dims": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "regnet_activation": "tanh",
+      "noise_var": 10.0,
+      "prior_var": 10.0
+    },
+    "laplace": {
+      "model": "laplace",
+      "regnet_dims": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "regnet_activation": "tanh",
+      "noise_var": 10.0,
+      "prior_var": 10.0
+    },
+    "ensemble": {
+      "model": "ensemble",
+      "n_models": 10,
+      "train_prop": 0.8,
+      "regnet_dims": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "regnet_activation": "tanh",
+      "noise_var": 10.0,
+      "prior_var": 10.0,
+      "train_steps": 1000,
+      "adapt_noise": false
+    }
+  }
+}
