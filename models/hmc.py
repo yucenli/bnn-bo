@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from botorch.posteriors import Posterior
-from models.model import Model
 from torch import Tensor, tensor
 
 from .hmc_utils import run_hmc
+from .model import Model
 from .utils import (RegNet, make_gaussian_log_likelihood,
                     make_gaussian_log_likelihood_fixed_noise,
                     make_gaussian_log_prior)

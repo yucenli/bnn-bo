@@ -47,12 +47,13 @@ def bayes_opt(model, test_function, args, init_x, init_y, model_save_dir, device
     train_y = init_y
 
     if output_dim > 1:
-        bd = DominatedPartitioning(ref_point=test_function.ref_point.to(train_x), Y=train_y)
-        volume = bd.compute_hypervolume().item()
-        hv = torch.zeros(args["n_BO_iters"] * q + 1)
-        hv[0] = volume
+        # compute hypervolume for each train_y
+        train_volume = torch.zeros(len(train_y))
+        for i in range(len(train_volume)):
+            bd = DominatedPartitioning(ref_point=test_function.ref_point.to(train_x), Y=train_y[:i+1])
+            volume = bd.compute_hypervolume().item()
+            train_volume[i] = volume
     
-    t = time.time()
     for i in range(args["n_BO_iters"]):
         sys.stdout.flush()
         sys.stderr.flush()
@@ -100,11 +101,13 @@ def bayes_opt(model, test_function, args, init_x, init_y, model_save_dir, device
         
         if output_dim > 1:
             # compute hypervolume
+            new_volume = torch.zeros(len(new_y))
             for h in range(q):
                 bd = DominatedPartitioning(ref_point=test_function.ref_point.to(train_x), Y=train_y[:-q + h + 1])
                 volume = bd.compute_hypervolume().item()
-                hv[q * i + h + 1] = volume
-            print("Max value", hv.max().item())
+                new_volume[h] = volume
+            train_volume = torch.cat([train_volume, new_volume])
+            print("Max value", train_volume.max().item())
         else:
             print("Max value", train_y.max().item())
 
@@ -112,12 +115,11 @@ def bayes_opt(model, test_function, args, init_x, init_y, model_save_dir, device
         torch.save(train_x.cpu(), "%s/train_x.pt" % model_save_dir)
         torch.save(train_y.cpu(), "%s/train_y.pt" % model_save_dir)
         if output_dim > 1:
-            torch.save(hv.cpu(), "%s/volume.pt" % model_save_dir)
+            torch.save(train_volume.cpu(), "%s/volume.pt" % model_save_dir)
 
     if output_dim > 1:
-        hv_max_index = torch.argmax(hv)
-        train_max_index = hv_max_index + len(init_x) - 1
-        return train_x[train_max_index], hv[hv_max_index]
+        max_index = torch.argmax(train_volume)
+        return train_x[max_index], train_volume[max_index]
     else:
         max_index = torch.argmax(train_y)
         return train_x[max_index], train_y[max_index]

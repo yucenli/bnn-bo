@@ -5,58 +5,60 @@ from typing import Any, Callable, List, Optional
 import numpy as np
 import torch
 from botorch.posteriors import Posterior
-from models.model import Model
 from torch import Tensor, tensor
 
+from .model import Model
 from .utils import (RegNet, make_gaussian_log_likelihood,
                     make_gaussian_log_likelihood_fixed_noise,
                     make_gaussian_log_prior)
 
 
 class NNPosterior(Posterior):
-    def __init__(self, X, model, param_samples, output_dim):
+    def __init__(self, X, model, param_samples, output_dim, noise_var):
         super().__init__()
         self.model = model
         self.param_samples = param_samples
         self.output_dim = output_dim
+        self.noise_var = noise_var
 
         self.predict_model(X)
 
     def predict_model(self, X):
-        self.preds = []
+        self.pred_mean = []
         for s in self.param_samples:
             torch.nn.utils.vector_to_parameters(s, self.model.parameters())
-            output = self.model(X.to(s))[..., :self.output_dim]
-            self.preds.append(output)
-        self.preds = torch.stack(self.preds)
+            output = self.model(X.to(s))
+            self.pred_mean.append(output)
+        self.pred_mean = torch.stack(self.pred_mean)
 
     def rsample(
         self,
         sample_shape: Optional[torch.Size] = None,
     ) -> Tensor:
-        n = len(self.preds)
+        n = len(self.pred_mean)
         i = np.random.randint(n, size=sample_shape)
-        sample = self.preds[i]
+        mean = self.pred_mean[i]
+        sample = torch.randn_like(mean) * self.noise_var.sqrt() + mean
         return sample
 
     @property
     def mean(self) -> Tensor:
         r"""The posterior mean."""
-        return self.preds.mean(axis=0)
+        return self.pred_mean.mean(axis=0)
 
     @property
     def variance(self) -> Tensor:
         r"""The posterior variance."""
-        return self.preds.var(axis=0)
+        return self.pred_mean.var(axis=0) + self.noise_var
 
     @property
     def device(self) -> torch.device:
-        return self.preds.device
+        return self.pred_mean.device
 
     @property
     def dtype(self) -> torch.dtype:
         r"""The torch dtype of the distribution."""
-        return self.preds.dtype
+        return self.pred_mean.dtype
 
 
 class Ensemble(Model):
@@ -69,16 +71,11 @@ class Ensemble(Model):
         self.regnet_activation = args["regnet_activation"]
         self.train_steps = args["train_steps"]
         self.prior_var = 1.0 / args["prior_var"]
-        self.adapt_noise = args["adapt_noise"]
         self.noise_var = torch.tensor(args["noise_var"])
 
         self.input_dim = input_dim
         self.problem_output_dim = output_dim
-        # add additional dimensions for noise
-        if self.adapt_noise:
-            self.network_output_dim = 2 * output_dim
-        else:
-            self.network_output_dim = output_dim
+        self.network_output_dim = output_dim
 
         self.model = RegNet(dimensions=self.regnet_dims,
                         activation=self.regnet_activation,
@@ -96,7 +93,7 @@ class Ensemble(Model):
         posterior_transform: Optional[Callable[[Posterior], Posterior]] = None,
         **kwargs: Any,
     ) -> Posterior:
-        return NNPosterior(X, self.model, self.param_samples, self.problem_output_dim)
+        return NNPosterior(X, self.model, self.param_samples, self.problem_output_dim, self.noise_var)
 
     @property
     def num_outputs(self) -> int:
@@ -112,10 +109,7 @@ class Ensemble(Model):
             model_train_y = train_y[indices]
         
             log_prior_fn, log_prior_diff_fn = make_gaussian_log_prior(1.0 / self.prior_var, 1.)
-            if self.adapt_noise:
-                log_likelihood_fn = make_gaussian_log_likelihood(1.)
-            else:
-                log_likelihood_fn = make_gaussian_log_likelihood_fixed_noise(1., self.noise_var)
+            log_likelihood_fn = make_gaussian_log_likelihood_fixed_noise(1., self.noise_var)
 
             def log_density_fn(model):
                 log_likelihood = log_likelihood_fn(model, model_train_x, model_train_y)

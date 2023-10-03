@@ -2,19 +2,16 @@ from typing import Any, Callable, List, Optional
 
 import gpytorch
 import torch
-from botorch.fit import fit_gpytorch_mll
 from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
-from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.input import InputTransform
-from botorch.models.transforms.outcome import (Log, OutcomeTransform,
-                                               Standardize)
+from botorch.models.transforms.outcome import OutcomeTransform, Standardize
 from botorch.models.utils import validate_input_scaling
 from botorch.posteriors import Posterior
 from gpytorch.constraints import GreaterThan
 from gpytorch.constraints.constraints import GreaterThan
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
-from gpytorch.kernels import Kernel, MaternKernel, RBFKernel, ScaleKernel
+from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.kernels.matern_kernel import MaternKernel
 from gpytorch.kernels.scale_kernel import ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
@@ -29,6 +26,9 @@ from gpytorch.priors import GammaPrior
 from gpytorch.priors.torch_priors import GammaPrior
 from torch import Tensor
 from torch.nn import Module
+
+from .model import Model
+
 
 class RegNet(torch.nn.Sequential):
     def __init__(self, dimensions, activation, input_dim=1, output_dim=1,

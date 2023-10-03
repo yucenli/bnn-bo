@@ -4,14 +4,14 @@ import botorch
 import gpytorch
 import torch
 from botorch.fit import fit_gpytorch_mll
-from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors import Posterior
-from gpytorch.kernels import ScaleKernel
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from torch import Tensor
+
+from .model import Model
 
 
 class IBNN_Erf(gpytorch.kernels.Kernel):
@@ -140,7 +140,7 @@ class MultiTaskIBNN(Model):
         self.var_b = model_args["var_b"]
         self.var_w = model_args["var_w"]
         self.depth = model_args["depth"]
-        if model_args["kernel"] == "erf":
+        if "kernel" in model_args and model_args["kernel"] == "erf":
             self.kernel = IBNN_Erf(input_dim, self.var_w, self.var_b, self.depth)
         else:
             self.kernel = IBNN_ReLU(input_dim, self.var_w, self.var_b, self.depth)

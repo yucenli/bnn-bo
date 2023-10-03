@@ -2,14 +2,13 @@ from typing import Any, Callable, List, Optional
 
 import numpy as np
 import torch
-from botorch.models.model import Model
 from botorch.posteriors import Posterior
-from models.model import Model
 from torch import Tensor
 
 from pybnn.bohamiann import Bohamiann
 from pybnn.util.layers import AppendLayer
 
+from .model import Model
 from .utils import RegNet
 
 

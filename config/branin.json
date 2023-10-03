@@ -66,7 +66,7 @@
       ],
       "regnet_activation": "tanh",
       "train_steps": 1000,
-      "weight_decay": 0.01,
+      "prior_var": 10.0,
       "adapt_noise": false,
       "noise_var": 1.0
     },

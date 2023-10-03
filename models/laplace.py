@@ -6,9 +6,9 @@ from botorch.posteriors import Posterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from gpytorch import distributions as gdists
 from laplace import Laplace
-from models.model import Model
 from torch import Tensor
 
+from .model import Model
 from .utils import RegNet
 
 

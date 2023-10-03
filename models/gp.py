@@ -3,17 +3,14 @@ from typing import Any, Callable, List, Optional
 import botorch
 import torch
 from botorch.fit import fit_gpytorch_mll
-from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors import Posterior
-from gpytorch.constraints import Interval
-from gpytorch.kernels import MaternKernel, ScaleKernel
-from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
-from gpytorch.priors import GammaPrior
 from torch import Tensor
+
+from .model import Model
 
 
 class SingleTaskGP(Model):
