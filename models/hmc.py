@@ -6,11 +6,15 @@ import torch
 from botorch.posteriors import Posterior
 from torch import Tensor, tensor
 
+from pybnn.bohamiann import Bohamiann
+from pybnn.util.layers import AppendLayer
+
 from .hmc_utils import run_hmc
 from .model import Model
 from .utils import (RegNet, make_gaussian_log_likelihood,
                     make_gaussian_log_likelihood_fixed_noise,
-                    make_gaussian_log_prior)
+                    make_gaussian_log_prior,
+                    get_best_hyperparameters)
 
 
 class HMCPosterior(Posterior):
@@ -95,14 +99,11 @@ class HMC(Model):
         # architecture
         self.regnet_dims = args["regnet_dims"]
         self.regnet_activation = args["regnet_activation"]
-        self.noise_var = tensor(args["noise_var"])
-        self.prior_var = args["prior_var"]
+        self.prior_var = args["prior_var"] if "prior_var" in args else 1.0
+        self.noise_var = args["noise_var"] if "noise_var" in args else torch.tensor(1.0)
         self.adapt_noise = args["adapt_noise"]
-        # optional dimensions for noise estimate
-        if self.adapt_noise:
-            self.network_output_dim = 2 * output_dim
-        else:
-            self.network_output_dim = output_dim
+        self.network_output_dim = output_dim
+        self.iterative = args["iterative"] if "iterative" in args else True
 
         # HMC params
         self.n_chains = args["n_chains"]
@@ -138,7 +139,71 @@ class HMC(Model):
     @property
     def num_outputs(self) -> int:
         return self.problem_output_dim
+    
+    def fit_hmc_model(self, train_x, train_y, prior_var, noise_var):
+        param_size = len(torch.nn.utils.parameters_to_vector(self.model.state_dict().values()).detach())
+        all_params = torch.zeros([self.n_samples_per_chain * self.n_chains, param_size]).to(train_x)
 
+        log_prior_fn, log_prior_diff_fn = make_gaussian_log_prior(1.0 / prior_var, 1.)
+        log_likelihood_fn = make_gaussian_log_likelihood_fixed_noise(1., noise_var)
+
+        def log_density_fn(model):
+            log_likelihood = log_likelihood_fn(model, train_x, train_y)
+            log_prior = log_prior_fn(model.parameters())
+            log_density = log_likelihood + log_prior
+            return log_density, log_likelihood.detach()
+        
+        all_likelihoods = []
+        for i in range(self.n_chains):
+
+            model = RegNet(dimensions=self.regnet_dims,
+                            activation=self.regnet_activation,
+                            input_dim=self.input_dim,
+                            output_dim=self.network_output_dim,
+                            dtype=train_x.dtype,
+                            device=train_x.device)
+
+            # pretrain model
+            optimizer = torch.optim.Adam(model.parameters(), maximize=True)
+            for e in range(self.pretrain_steps):
+                optimizer.zero_grad()
+                log_density, llh = log_density_fn(self.model)
+                log_density.backward()
+                if (e+1) % 1000 == 0:
+                    # log_prior, log_likelihood
+                    print(e + 1, log_density.item() - llh.item(), llh.item())
+                optimizer.step()
+            del optimizer
+            model.zero_grad()
+      
+            # run HMC and save parameters
+            params_hmc, llhs = run_hmc(self.n_samples_per_chain, model, log_density_fn, 
+                                       log_prior_diff_fn, self.step_size,
+                                       self.path_length, self.adapt_step_size, self.n_burn_in,
+                                       True)
+
+            all_likelihoods = all_likelihoods + llhs
+            all_params[i * self.n_samples_per_chain:(i+1) * self.n_samples_per_chain] = params_hmc
+            del params_hmc
+
+        return all_params, all_likelihoods
+
+    def get_likelihood(self, train_x, train_y, prior_var, noise_var):
+        n = len(train_x)
+        n_train = int(0.8 * n)
+        train_x, val_x = train_x[:n_train], train_x[n_train:]
+        train_y, val_y = train_y[:n_train], train_y[n_train:]
+        
+        param_samples, llhs = self.fit_hmc_model(train_x, train_y, prior_var, noise_var)
+        posterior = HMCPosterior(val_x, self.model, param_samples, self.problem_output_dim, self.mean, self.std)
+        
+        predictions_mean = posterior.mean
+        # std combines epistemic and aleatoric uncertainty
+        predictions_std = torch.sqrt(posterior.variance + self.noise_var)
+        # get log likelihood
+        likelihood = torch.distributions.Normal(predictions_mean, predictions_std).log_prob(val_y).sum()
+        return likelihood
+    
     def fit_and_save(self, train_x, original_train_y, save_dir):
         # standardize y before training
         if self.standardize_y:
@@ -151,59 +216,12 @@ class HMC(Model):
         else:
             train_y = original_train_y
 
-        param_size = len(torch.nn.utils.parameters_to_vector(self.model.state_dict().values()).detach())
-        self.param_samples = None
-        all_params = torch.zeros([self.n_samples_per_chain * self.n_chains, param_size]).to(train_x)
+        if self.iterative:
+            llh_fn = self.get_likelihood
+            self.prior_var, self.noise_var = get_best_hyperparameters(train_x, original_train_y, llh_fn)
 
-        # log density functions
-        weight_decay = 1.0 / self.prior_var
-        log_prior_fn, log_prior_diff_fn = make_gaussian_log_prior(weight_decay, 1.)
-        
-        if self.adapt_noise:
-            log_likelihood_fn = make_gaussian_log_likelihood(1.)
-        else:
-            log_likelihood_fn = make_gaussian_log_likelihood_fixed_noise(1., self.noise_var)
-
-        def log_density_fn(model):
-            log_likelihood = log_likelihood_fn(model, train_x, train_y)
-            log_prior = log_prior_fn(model.parameters())
-            log_density = log_likelihood + log_prior
-            return log_density, log_likelihood.detach()
-        
-        all_likelihoods = []
-        for i in range(self.n_chains):
-
-            self.model = RegNet(dimensions=self.regnet_dims,
-                                activation=self.regnet_activation,
-                                input_dim=self.input_dim,
-                                output_dim=self.network_output_dim,
-                                dtype=train_x.dtype,
-                                device=train_x.device)
-
-            # pretrain model
-            optimizer = torch.optim.Adam(self.model.parameters(), maximize=True)
-            for e in range(self.pretrain_steps):
-                optimizer.zero_grad()
-                log_density, llh = log_density_fn(self.model)
-                log_density.backward()
-                if (e+1) % 1000 == 0:
-                    # log_prior, log_likelihood
-                    print(e + 1, log_density.item() - llh.item(), llh.item())
-                optimizer.step()
-            del optimizer
-            self.model.zero_grad()
-      
-            # run HMC and save parameters
-            params_hmc, llhs = run_hmc(self.n_samples_per_chain, self.model, log_density_fn, 
-                                       log_prior_diff_fn, self.step_size,
-                                       self.path_length, self.adapt_step_size, self.n_burn_in,
-                                       True)
-
-            all_likelihoods = all_likelihoods + llhs
-            all_params[i * self.n_samples_per_chain:(i+1) * self.n_samples_per_chain] = params_hmc
-            del params_hmc
-
-        self.param_samples = all_params
+        self.param_samples, all_likelihoods = self.fit_hmc_model(
+            train_x, train_y, self.prior_var, self.noise_var)
         if save_dir is not None:
             plt.plot(range(len(all_likelihoods)), all_likelihoods)
             plt.savefig("%s/model_state/%d_likelihood.png" % (save_dir, len(train_x)))

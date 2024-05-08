@@ -10,7 +10,8 @@ from torch import Tensor, tensor
 from .model import Model
 from .utils import (RegNet, make_gaussian_log_likelihood,
                     make_gaussian_log_likelihood_fixed_noise,
-                    make_gaussian_log_prior)
+                    make_gaussian_log_prior,
+                    get_best_hyperparameters)
 
 
 class NNPosterior(Posterior):
@@ -70,8 +71,8 @@ class Ensemble(Model):
         self.regnet_dims = args["regnet_dims"]
         self.regnet_activation = args["regnet_activation"]
         self.train_steps = args["train_steps"]
-        self.prior_var = 1.0 / args["prior_var"]
-        self.noise_var = torch.tensor(args["noise_var"])
+        self.prior_var = args["prior_var"] if "prior_var" in args else 1.0
+        self.noise_var = args["noise_var"] if "noise_var" in args else torch.tensor(1.0)
 
         self.input_dim = input_dim
         self.problem_output_dim = output_dim
@@ -84,6 +85,8 @@ class Ensemble(Model):
                         dtype=torch.float64,
                         device=device)
         self.param_samples = None
+
+        self.iterative = args["iterative"] if "iterative" in args else True
 
     def posterior(
         self,
@@ -98,18 +101,17 @@ class Ensemble(Model):
     @property
     def num_outputs(self) -> int:
         return self.problem_output_dim
-
-    def fit_and_save(self, train_x, train_y, save_dir):
+    
+    def fit_ensemble(self, train_x, train_y, prior_var, noise_var):
         all_params = tensor([]).to(train_x)
         for i in range(self.n_models):
-            print("training", i)
             n_train_samples = math.ceil(self.train_prop * len(train_x))
             indices = torch.randperm(len(train_x))[:n_train_samples]
             model_train_x = train_x[indices]
             model_train_y = train_y[indices]
         
-            log_prior_fn, log_prior_diff_fn = make_gaussian_log_prior(1.0 / self.prior_var, 1.)
-            log_likelihood_fn = make_gaussian_log_likelihood_fixed_noise(1., self.noise_var)
+            log_prior_fn, log_prior_diff_fn = make_gaussian_log_prior(1.0 / prior_var, 1.)
+            log_likelihood_fn = make_gaussian_log_likelihood_fixed_noise(1., noise_var)
 
             def log_density_fn(model):
                 log_likelihood = log_likelihood_fn(model, model_train_x, model_train_y)
@@ -134,5 +136,28 @@ class Ensemble(Model):
             params = torch.nn.utils.parameters_to_vector(net.state_dict().values()).to(train_x).unsqueeze(0)
             all_params = torch.cat((all_params, params))
             del params
+        return all_params
+    
+    def get_likelihood(self, train_x, train_y, prior_var, noise_var):
+        n = len(train_x)
+        n_train = int(0.8 * n)
+        train_x, val_x = train_x[:n_train], train_x[n_train:]
+        train_y, val_y = train_y[:n_train], train_y[n_train:]
 
+        params = self.fit_ensemble(train_x, train_y, prior_var, noise_var)
+        posterior = NNPosterior(val_x, self.model, params, self.problem_output_dim, noise_var)
+    
+        predictions_mean = posterior.mean
+        # std combines epistemic and aleatoric uncertainty
+        predictions_std = torch.sqrt(posterior.variance + self.noise_var)
+        # get log likelihood
+        likelihood = torch.distributions.Normal(predictions_mean, predictions_std).log_prob(val_y).sum()
+        return likelihood
+
+    def fit_and_save(self, train_x, train_y, save_dir):
+        if self.iterative:
+            llh_fn = self.get_likelihood
+            self.prior_var, self.noise_var = get_best_hyperparameters(train_x, train_y, llh_fn)
+            
+        all_params = self.fit_ensemble(train_x, train_y, self.prior_var, self.noise_var)
         self.param_samples = all_params
