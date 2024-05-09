@@ -4,7 +4,17 @@ import math
 import torch
 from torch.nn import functional as F
 import numpy as np
-
+import pyro
+import pyro.distributions as dist
+from pyro.nn import PyroModule, PyroSample
+import torch.nn as nn
+from pyro.infer import MCMC, NUTS
+from pyro.infer import Predictive
+from torch import Tensor, tensor
+import torch
+import numpy as np
+from .model import Model
+from botorch.posteriors import Posterior
 
 def make_gaussian_log_prior(weight_decay, temperature):
   """Returns the Gaussian log-density and delta given weight decay."""
@@ -107,3 +117,42 @@ class RegNet(torch.nn.Sequential):
                     self.add_module('relu%d' % i, torch.nn.ReLU())
                 else:
                     raise NotImplementedError("Activation type %s is not supported" % activation)
+
+
+class BNN(PyroModule):
+    def __init__(self,dimensions, activation, input_dim=1, output_dim=1,prior_var=5,
+                        dtype=torch.float64, device="cpu"):
+        super().__init__()
+        if activation == "tanh":
+            self.activation = nn.Tanh()
+        elif activation == "relu":
+            self.activation = nn.ReLU()
+        self.input_dim = input_dim
+        # Define the layer sizes and the PyroModule layer list
+        self.layer_sizes = [input_dim] + dimensions + [output_dim]
+        layer_list = [PyroModule[nn.Linear](self.layer_sizes[idx - 1], self.layer_sizes[idx]) for idx in
+                      range(1, len(self.layer_sizes))]
+        self.layers = PyroModule[torch.nn.ModuleList](layer_list)
+
+        for layer_idx, layer in enumerate(self.layers):
+            layer.weight = PyroSample(dist.Normal(0., prior_var * np.sqrt(2 / self.layer_sizes[layer_idx])).expand(
+                [self.layer_sizes[layer_idx + 1], self.layer_sizes[layer_idx]]).to_event(2))
+            layer.bias = PyroSample(dist.Normal(0., prior_var).expand([self.layer_sizes[layer_idx + 1]]).to_event(1))
+
+    def forward(self, x, y=None):
+            # Ensure x is at least 2D tensor
+            if x.dim() == 1:
+                x = x.unsqueeze(1)  # Add singleton dimension if input is 1D
+
+            # Forward pass through the network
+            for layer in self.layers[:-1]:
+                x = self.activation(layer(x))
+            mu = self.layers[-1](x)
+
+            # Infer the response noise
+            sigma = pyro.sample("sigma", dist.Gamma(0.5, 1))
+
+            # Sample observations
+            with pyro.plate("data", size=x.shape[0], subsample=y):
+                obs = pyro.sample("obs", dist.Normal(mu, sigma).to_event(1), obs=y)
+            return mu
