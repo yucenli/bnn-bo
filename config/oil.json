@@ -1,20 +1,66 @@
 {
-  "n_trials": 5,
-  "n_BO_iters": 10,
+  "n_trials": 1,
+  "n_BO_iters": 2,
   "seed": 1,
   "test_function": "oil",
   "batch_size": 10,
-  "n_init_points": 100,
+  "n_init_points": 15,
   "models": {
+    "dropout": {
+      "model": "dropout",
+      "dropout_prob": 0.5,
+      "n_models": 10,
+      "train_prop": 0.8,
+      "regnet_dims": [
+        100,
+        100
+      ],
+      "regnet_activation": "tanh",
+      "noise_var": 10.0,
+      "prior_var": 10.0,
+      "train_steps": 1000,
+      "adapt_noise": false,
+      "n_samples":500,
+      "standardize_y": true
+
+    },
+    "svi": {
+      "model": "svi",
+      "regnet_dims": [
+        100,
+        100
+
+      ],
+      "regnet_activation": "tanh",
+      "noise_var": 10.0,
+      "prior_var": 10.0,
+      "adapt_step_size": true,
+      "adapt_noise": false,
+      "standardize_y": true,
+      "num_epochs":1200
+    },
+    "nuts": {
+      "model": "nuts",
+      "regnet_dims": [
+        10,
+        10
+      ],
+      "regnet_activation": "tanh",
+      "noise_var": 10.0,
+      "prior_var": 10.0,
+      "n_samples_per_chain": 30,
+      "n_burn_in": 10,
+      "n_chains": 1,
+      "adapt_step_size": true,
+      "adapt_noise": false,
+      "standardize_y": true
+    },
     "gp": {
       "model": "gp"
     },
     "dkl": {
       "model": "dkl",
       "regnet_dims": [
-        100,
-        100,
-        100,
         100,
         100
       ],
@@ -36,9 +82,6 @@
       "model": "hmc",
       "regnet_dims": [
         100,
-        100,
-        100,
-        100,
         100
       ],
       "regnet_activation": "tanh",
@@ -52,33 +95,7 @@
       "pretrain_steps": 1000,
       "adapt_step_size": true,
       "adapt_noise": false,
-      "standardize_y": false
-    },
-    "sghmc": {
-      "model": "sghmc",
-      "regnet_dims": [
-        100,
-        100,
-        100,
-        100,
-        100
-      ],
-      "regnet_activation": "tanh",
-      "noise_var": 0.1,
-      "prior_var": 10.0
-    },
-    "laplace": {
-      "model": "laplace",
-      "regnet_dims": [
-        100,
-        100,
-        100,
-        100,
-        100
-      ],
-      "regnet_activation": "tanh",
-      "noise_var": 0.1,
-      "prior_var": 10.0
+      "standardize_y": true
     },
     "ensemble": {
       "model": "ensemble",
@@ -86,16 +103,15 @@
       "train_prop": 0.8,
       "regnet_dims": [
         100,
-        100,
-        100,
-        100,
         100
       ],
       "regnet_activation": "tanh",
       "noise_var": 0.1,
       "prior_var": 10.0,
       "train_steps": 1000,
-      "adapt_noise": false
+      "adapt_noise": false,
+      "standardize_y": true
+
     }
   }
 }

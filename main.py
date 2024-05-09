@@ -149,6 +149,12 @@ def initialize_model(model_name, model_args, input_dim, output_dim, device):
         return LaplaceBNN(model_args, input_dim, output_dim, device)
     elif model_name == 'ensemble':
         return Ensemble(model_args, input_dim, output_dim, device)
+    elif model_name == 'svi':
+        return MySVI(model_args, input_dim, output_dim, device)
+    elif model_name == 'dropout':
+        return Dropout(model_args, input_dim, output_dim, device) 
+    elif model_name == 'nuts':
+        return MYNUTS(model_args, input_dim, output_dim, device)
     else:
         raise NotImplementedError("Model type %s does not exist" % model_name)
 
@@ -274,7 +280,7 @@ def main(cl_args):
         # save config
         with open(save_dir + '/config.json', 'w') as f:
             json.dump(args, f, indent=2)
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device("cpu")
         torch.set_default_dtype(torch.float64)
         torch.manual_seed(int(args["seed"]))
 
